@@ -12,8 +12,8 @@ sound capturing &amp; playback with ALSA (using QT Creator)
  
 3. 2차 수정(20.09.22~)
  - 사용자 UI 보강
- -- 모든 parameter tuning이 가능하도록 수정
- -- 사용자 UI 측에서 parameter(sampleSize, sampleRate, channel, fileName 등) 입력받아 넘길 것.
+ >> 모든 parameter tuning이 가능하도록 수정
+ >> 사용자 UI 측에서 parameter(sampleSize, sampleRate, channel, fileName 등) 입력받아 넘길 것.
  
  - 예외처리 추가
- -- 존재하지 않는 파일명 입력시 에러메세지 출력
+ >> 존재하지 않는 파일명 입력시 에러메세지 출력
