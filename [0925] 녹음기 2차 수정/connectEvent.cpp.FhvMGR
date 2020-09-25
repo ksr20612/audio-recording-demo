@@ -1,0 +1,271 @@
+#include "connectEvent.h"
+#include "wavWriter.h"
+#include "wavReader.h"
+#include "fileData.h"
+#include <iostream>
+#include <alsa/asoundlib.h>
+#include <stdio.h>
+#include <malloc.h>
+#include <QCoreApplication>
+using namespace std;
+
+ConnectEvent::ConnectEvent(){}
+ConnectEvent::~ConnectEvent(){
+    cout<< "=====instance destructed=====" << endl;
+}
+
+void ConnectEvent::connectQmlCpp()
+{
+    QObject::connect(mMainView, SIGNAL(qmlSignalintData(QVariant)),this,SLOT(cppSlotintData(QVariant))); // qml -> cpp
+    QObject::connect(mMainView, SIGNAL(startRecord(QVariant)),this,SLOT(startRecording(QVariant))); // qml -> cpp
+    QObject::connect(mMainView, SIGNAL(startPlay(QVariant)),this,SLOT(startPlaying(QVariant))); // qml -> cpp
+}
+
+void ConnectEvent::setWindow(QQuickWindow* Window){
+
+    mMainView = Window;
+
+    connectQmlCpp();
+}
+
+void ConnectEvent::cppSlotintData(QVariant intData){
+
+    cout << "cppSlotintData call" << endl;
+    int data_str = intData.toInt(); // typeCasting from QVariant to Integer
+    cout << "cppSlotintData data_str: " << data_str << endl;
+
+}
+
+void ConnectEvent::startRecording(QVariant intData){
+
+    if(intData==1){
+        cout << "YOU CAN START RECORDING" << endl;
+        mIsRecorded = true;
+    }
+
+    // ----audio capture----
+    int err;
+    cout << "insert time" << endl;
+    cin >> mTime;
+
+    snd_pcm_t *capture_handle; // handler
+    snd_pcm_hw_params_t *hw_params;
+    snd_pcm_format_t format = SND_PCM_FORMAT_S16_LE; // smapling rate(16bit)
+
+
+    // open pcm
+    if ((err = snd_pcm_open (&capture_handle, "plughw:0,0", SND_PCM_STREAM_CAPTURE, 0)) < 0) {
+      fprintf (stderr, "fail to open pcm. (%s)\n",
+               snd_strerror (err));
+      exit (1);
+    }
+    fprintf(stdout, "pcm openned \n");
+
+    // allocate structure for parameter setting
+    if ((err = snd_pcm_hw_params_malloc (&hw_params)) < 0) {
+      fprintf (stderr, "fail to allocate structure for parameter setting. (%s)\n",
+               snd_strerror (err));
+      exit (1);
+    }
+    fprintf(stdout, "structure allocated\n");
+
+    // parameter initialization with defaults
+    if ((err = snd_pcm_hw_params_any (capture_handle, hw_params)) < 0) {
+      fprintf (stderr, "fail to initialize parameters (%s)\n",
+               snd_strerror (err));
+      exit (1);
+    }
+    fprintf(stdout, "parameter initialized\n");
+
+    // access type setting (audio capture =readi / audio playback =writei)
+    if ((err = snd_pcm_hw_params_set_access (capture_handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
+      fprintf (stderr, "fail to set access type (%s)\n",
+               snd_strerror (err));
+      exit (1);
+    }
+    fprintf(stdout, "Access Type setted\n");
+
+    // sampling rate setting
+    if ((err = snd_pcm_hw_params_set_format (capture_handle, hw_params, format)) < 0) {
+      fprintf (stderr, "fail to set sampling rate (%s)\n",
+               snd_strerror (err));
+      exit (1);
+    }
+    fprintf(stdout, "sampling rate setted\n");
+
+    // sampling freq setting
+    if ((err = snd_pcm_hw_params_set_rate_near (capture_handle, hw_params, &mFreq, 0)) < 0) {
+      fprintf (stderr, "fail to set sampling freq (%s)\n",
+               snd_strerror (err));
+      exit (1);
+    }
+    fprintf(stdout, "sampling freq setted \n");
+
+    // channel selecting(mono-1- or stereo-2-)
+    if ((err = snd_pcm_hw_params_set_channels (capture_handle, hw_params, 2)) < 0) {
+      fprintf (stderr, "fail to select appropriate channel (%s)\n",
+               snd_strerror (err));
+      exit (1);
+    }
+    fprintf(stdout, "channel determined \n");
+
+    // conveying parameters to the handler
+    if ((err = snd_pcm_hw_params (capture_handle, hw_params)) < 0) {
+      fprintf (stderr, "fail to deliever parameters (%s)\n",
+               snd_strerror (err));
+      exit (1);
+    }
+    fprintf(stdout, "parameters delievered \n");
+
+    // free memory allocated
+    snd_pcm_hw_params_free (hw_params);
+    fprintf(stdout, "free structure \n");
+
+    // prepare audio capture
+    if ((err = snd_pcm_prepare (capture_handle)) < 0) {
+      fprintf (stderr, "fail to prepare sound interface (%s)\n",
+               snd_strerror (err));
+      exit (1);
+    }
+    fprintf(stdout, "interface well-prepared \n");
+
+    // buffer size determination (freq * rate * time = buffer_frames * sampling_rate)
+    mBuffer_frames = mTime * mFreq;
+    char* buffer = new char[mBuffer_frames * mSampling_rate];
+    mBuffer = new char[mBuffer_frames * mSampling_rate];
+    *mBuffer = *buffer; // deep copy
+    fprintf(stdout, "buffer determined \n");
+
+    // capture begin
+    printf("start recording for %d seconds\n", mTime);
+    snd_pcm_readi (capture_handle, mBuffer, mBuffer_frames);
+    cout << "capture completed" << endl;
+
+    // check if buffer is empty
+    if(&mBuffer[0]==NULL) cout << "buffer is empty... no sounds are recorded...!" << endl;
+
+    // save capture in WAV file
+    char fileName[30];
+    cout << "Please insert file name" << endl;
+    cin >> fileName;
+    char* extension = ".wav";
+    strcat(fileName, extension);
+
+    //char* fileName = "test.wav";
+
+    WavWriter::writeWav(fileName, mTime*2, mBuffer, mSampling_rate);
+
+    // free buffer
+    delete[] buffer;
+    delete[] mBuffer;
+    fprintf(stdout, "free buffer.\n");
+
+    // drop handler
+    snd_pcm_drop(capture_handle);
+    printf("capture completed \n");
+
+    // close handler
+    snd_pcm_close (capture_handle);
+    printf("handler closed \n");
+
+}
+
+int ConnectEvent::startPlaying(QVariant intdata){
+
+    if(intdata == 1) cout << "YOU CAN PLAYBACK WHAT YOU'VE RECORDED" << endl;
+
+    if(mIsRecorded==false) {
+        // set time, buffer_frames
+        // wav -> mBuffer
+        char name[30];
+        cout << "NO DATA IN BUFFER : Plase insert file name" << endl;
+        cin >> name;
+        char* extension = ".wav";
+        strcat(name, extension);
+
+        //FileData *fd = new FileData();
+        //*fd = wav_header_t::readWav(name);
+    }
+
+    int err;
+    snd_pcm_t *playback_handle;
+    snd_pcm_hw_params_t *hw_params;
+
+    // open audio device
+    if ((err = snd_pcm_open (&playback_handle, "plughw:0,0", SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
+        fprintf (stderr, "cannot open audio device (%s)\n",
+             snd_strerror (err));
+        exit (1);
+    }
+
+    // allocate structure for parameter setting
+    if ((err = snd_pcm_hw_params_malloc (&hw_params)) < 0) {
+        fprintf (stderr, "cannot allocate hardware parameter structure (%s)\n",
+             snd_strerror (err));
+        exit (1);
+    }
+
+    // initialize the structure with defaults
+    if ((err = snd_pcm_hw_params_any (playback_handle, hw_params)) < 0) {
+        fprintf (stderr, "cannot initialize hardware parameter structure (%s)\n",
+             snd_strerror (err));
+        exit (1);
+    }
+
+    // determine Access Type (capture =readi / playback =writei)
+    if ((err = snd_pcm_hw_params_set_access (playback_handle, hw_params, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
+        fprintf (stderr, "cannot set access type (%s)\n",
+             snd_strerror (err));
+        exit (1);
+    }
+
+    // set sampling rate
+    if ((err = snd_pcm_hw_params_set_format (playback_handle, hw_params, SND_PCM_FORMAT_S16_LE)) < 0) {
+        fprintf (stderr, "cannot set sample format (%s)\n",
+             snd_strerror (err));
+        exit (1);
+    }
+
+    // set sampling freq
+    if ((err = snd_pcm_hw_params_set_rate_near(playback_handle, hw_params, &mFreq, 0)) < 0) {
+        fprintf (stderr, "cannot set sample rate (%s)\n",
+             snd_strerror (err));
+        exit (1);
+    }
+
+    // determine channel count
+    if ((err = snd_pcm_hw_params_set_channels (playback_handle, hw_params, 1)) < 0) {
+        fprintf (stderr, "cannot set channel count (%s)\n",
+             snd_strerror (err));
+        exit (1);
+    }
+
+    // convey parameters to the handler
+    if ((err = snd_pcm_hw_params (playback_handle, hw_params)) < 0) {
+        fprintf (stderr, "cannot set parameters (%s)\n",
+             snd_strerror (err));
+        exit (1);
+    }
+
+    // free memory allocated to the structure
+    snd_pcm_hw_params_free (hw_params);
+
+    // parepare audio interface
+    if ((err = snd_pcm_prepare (playback_handle)) < 0) {
+        fprintf (stderr, "cannot prepare audio interface for use (%s)\n",
+             snd_strerror (err));
+        exit (1);
+    }
+
+    // start playback
+    printf("start playback for %d seconds\n", mTime);
+    snd_pcm_writei (playback_handle, mBuffer, mBuffer_frames);
+    usleep(mTime*1000*1000); // wait n sec until the file is fully read
+    cout << "playback completed" << endl;
+
+    // drop & close the handler
+    snd_pcm_drop(playback_handle);
+    snd_pcm_close (playback_handle);
+
+    return 0;
+}
